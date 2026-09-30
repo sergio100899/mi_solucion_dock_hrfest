@@ -1,0 +1,25 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# colcon
+build/
+install/
+log/
+
+# Editores y sistema
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+
+# Grabaciones y videos
+*.bag
+*.db3
+*.mcap
+rosbag2_*/
+*.mp4
+*.mkv
