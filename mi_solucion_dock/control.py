@@ -5,7 +5,7 @@ import numpy as np
 RADIO_ROBOT = 0.339 / 2  # m
 SALIENTE_CAJAS = 0.08  # m, cuanto sobresalen las cajas de la pared
 D_MIN = RADIO_ROBOT + SALIENTE_CAJAS  # m
-D_ACOPLE = 0.34  # m
+D_ACOPLE = 0.40  # m, a partir de aqui velocidad de acople
 D_RETIRADA = 0.55  # m
 
 # Perfil de velocidad (trapezoidal en lazo cerrado)
@@ -22,7 +22,7 @@ K_L = 0.35  # distancia de mira sobre el eje
 L_MIN, L_MAX = 0.05, 0.6
 EMBUDO = 0.35
 GIRO_EN_SITIO = math.radians(90)
-GIRO_ACOPLE = math.radians(15)
+GIRO_ACOPLE = math.radians(4)  # tramo final: mas torcido que esto, reintentar
 
 EDAD_MAX = 1.5  # s sin detectar: la estimacion vieja se sigue usando
 
@@ -102,6 +102,11 @@ class Controlador:
             return 0.0, 0.0
         if self.estado == "ACOPLE" and abs(lat) > 0.03:
             self.estado = "RETIRADA"  # muy descentrado para acoplar
+            return 0.0, 0.0
+        if self.estado == "ACOPLE" and abs(ang(-n)) >= GIRO_ACOPLE:
+            # Tan torcido que no avanzaria nunca (y el giro se queda en ~0 si el
+            # error lateral y el angular se compensan): retroceder y reintentar
+            self.estado = "RETIRADA"
             return 0.0, 0.0
 
         return self._seguir_eje(p, n, d, lat)
