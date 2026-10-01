@@ -1,8 +1,8 @@
 # mi_solucion_dock
 
-Solución para el Create 3 Dock Challenge (HRFEST 2026). El robot encuentra el
-dock y se acopla usando solo el LiDAR, sin la acción `/dock`, sin los sensores
-IR y sin ground truth.
+Solución para el Create 3 Dock Challenge (HRFEST 2026). El robot localiza el
+dock y se acopla usando únicamente el LiDAR (`/scan`), sin la acción `/dock`,
+sin sensores IR y sin ground truth.
 
 ## Equipo
 
@@ -12,10 +12,13 @@ IR y sin ground truth.
 | Rafael Neciosup | rafaelnv2002@gmail.com |
 | Sergio Ortiz | sergio100899@gmail.com |
 
-## Instalación
+## Requisitos
 
-Probado en Ubuntu 22.04 con ROS 2 Humble y Gazebo Classic 11. Además de lo que
-ya instala el reto, solo hace falta NumPy.
+- Ubuntu 22.04, ROS 2 Humble, Gazebo Classic 11
+- Paquete `create3_dock_challenge`
+- NumPy (`python3-numpy`)
+
+## Instalación
 
 ```bash
 mkdir -p ~/sim_ws/src && cd ~/sim_ws/src
@@ -32,114 +35,122 @@ source install/setup.bash
 ## Ejecución
 
 ```bash
-# Terminal 1: escenario del reto
+# Terminal 1: escenario
 ros2 run create3_dock_challenge clean_sim.sh
 ros2 launch create3_dock_challenge challenge_world.launch.py
 
-# Terminal 2: la solución
+# Terminal 2: solución
 ros2 launch mi_solucion_dock solucion.launch.py
 ```
 
-El nodo arranca solo y se detiene cuando `/dock_status` marca `is_docked: true`.
-Para probar otras poses iniciales:
+El nodo inicia sin intervención y detiene el robot cuando `/dock_status`
+reporta `is_docked: true`.
+
+Pose inicial distinta:
 
 ```bash
 ros2 launch create3_dock_challenge challenge_world.launch.py x:=0.9 y:=0.7 yaw:=-1.2
 ```
 
-También está el nodo `scan_points`, que hace toda la detección pero no mueve
-el robot. Lo usé para depurar moviendo el robot con `teleop_twist_keyboard`:
+## Depuración
+
+El nodo `scan_points` ejecuta la detección y el filtrado sin publicar en
+`/cmd_vel`:
 
 ```bash
 ros2 run mi_solucion_dock scan_points --ros-args -p use_sim_time:=true
 ```
 
-Los dos nodos publican marcadores en `/debug/scan_points` para verlos en RViz
-(con Fixed Frame en `odom`): puntos del scan en cian, paredes en naranja, cajas
-en magenta, el eje detectado en amarillo y el eje filtrado en verde.
+Ambos nodos publican marcadores en `/debug/scan_points` (Fixed Frame `odom`):
 
-## Cómo funciona
+| Color | Contenido |
+|---|---|
+| Cian | Puntos del scan en `base_link` |
+| Naranja | Paredes detectadas |
+| Magenta | Puntos de las cajas |
+| Amarillo | Eje del dock del scan actual |
+| Verde | Eje del dock filtrado |
 
-El código está en `mi_solucion_dock/`. La lógica está en tres módulos que no
-dependen de ROS (`detector.py`, `filtro.py` y `control.py`), y `dock_lidar.py`
-es el nodo que los junta: lee `/scan` y las TF, y publica en `/cmd_vel`.
+## Estructura
+
+| Archivo | Contenido |
+|---|---|
+| `detector.py` | Paredes (RANSAC), cajas y eje del dock |
+| `filtro.py` | Estimación del eje en `odom` |
+| `control.py` | Máquina de estados y perfil de velocidad |
+| `scan_points.py` | Nodo de percepción |
+| `dock_lidar.py` | Nodo principal: percepción y control |
+| `launch/solucion.launch.py` | Comando de lanzamiento |
+
+`detector.py`, `filtro.py` y `control.py` no dependen de ROS. Los parámetros
+están definidos como constantes al inicio de cada archivo.
+
+Interfaces utilizadas:
+
+| Interfaz | Uso |
+|---|---|
+| `/scan` | Percepción |
+| `/tf`, `/tf_static` | `base_link → laser_link` y `odom → base_link` |
+| `/dock_status` | Condición de parada |
+| `/cmd_vel` | Comando de velocidad |
+
+## Algoritmo
 
 ### Detección
 
-1. Los puntos del scan se pasan a `base_link` con la TF del LiDAR. Así se
-   corrigen de una vez el giro de 180° y el desplazamiento del sensor.
-2. Las paredes se encuentran con RANSAC: se eligen dos puntos al azar, se
-   cuentan los que quedan a menos de 1.5 cm de esa recta y se repite hasta
-   quedarse con la mejor. Luego se quitan esos puntos y se busca la siguiente.
-3. Frente a cada pared se buscan puntos que sobresalgan entre 5 y 11 cm (las
-   cajas sobresalen 8). Se agrupan a lo largo de la pared y se busca un par de
-   grupos de unos 8 cm de ancho con 17.5 cm entre centros. Si aparece, el eje
-   del dock pasa por el punto medio entre las dos cajas, perpendicular a la
-   pared.
+1. Los puntos del scan se transforman a `base_link` mediante la TF del LiDAR,
+   lo que compensa el montaje girado 180° y desplazado.
+2. Las paredes se obtienen con RANSAC: se toman dos puntos al azar, se cuentan
+   los puntos a menos de 1.5 cm de la recta que definen y se conserva la recta
+   con más puntos. Se eliminan esos puntos y se repite, hasta cuatro paredes.
+3. Para cada pared se seleccionan los puntos que sobresalen entre 5 y 11 cm
+   (las cajas sobresalen 8 cm), se agrupan a lo largo de la pared y se busca un
+   par de grupos de ~8 cm de ancho separados 17.5 cm entre centros.
+4. El eje del dock pasa por el punto medio entre las dos cajas,
+   perpendicular a la pared.
 
-De lejos los rayos llegan más separados y el ancho medido de las cajas sale más
-corto, así que las tolerancias crecen con la separación entre rayos. Con esto
-detecta el marcador hasta unos 5 m. En pruebas con la sala sin cajas no dio
-falsos positivos.
+La separación entre rayos crece con la distancia, por lo que las tolerancias de
+ancho y separación se escalan con ella. El alcance de detección es de ~5 m.
 
 ### Filtrado
 
-La posición del dock se guarda en el frame `odom`, donde no debería moverse.
-Cada detección nueva se promedia con la anterior (media exponencial, peso 0.3)
-y se descartan las que saltan más de 10 cm o 10°. El control solo empieza
-después de tres detecciones, y si se pierde el marcador sigue con la última
-estimación durante 1.5 s.
+La estimación del eje se mantiene en el frame `odom`:
+
+- Media exponencial con peso 0.3 para cada detección nueva.
+- Se descartan detecciones a más de 10 cm o 10° de la estimación; tres
+  detecciones consecutivas coherentes reemplazan la estimación.
+- El control se habilita a partir de tres detecciones.
+- Sin detecciones, la última estimación se mantiene durante 1.5 s.
 
 ### Control
 
-Es una máquina de estados:
+| Estado | Comportamiento |
+|---|---|
+| Búsqueda | Sin estimación del dock: desplazamiento hacia el centro de la sala (calculado a partir de las paredes) y giro en el sitio. |
+| Preposición | Con desplazamiento lateral grande cerca de la pared: desplazamiento previo a un punto del eje más alejado. |
+| Aproximación | Seguimiento del eje con pure pursuit. La distancia de mira se reduce al acercarse a la pared. |
+| Acople | A partir de 40 cm de la pared, a 4 cm/s. Un error de orientación mayor a 4° provoca una retirada. |
+| Retirada | Retroceso hasta 55 cm de la pared y nuevo intento. También se activa al llegar a 25 cm sin acople. |
+| Acoplado | `is_docked: true`: velocidad cero. |
 
-- **Búsqueda**: si no ve el dock, avanza hacia el centro de la sala (calculado
-  con las paredes detectadas) y gira. Desde ahí el marcador se detecta bien.
-- **Preposición**: si está muy de lado y cerca de la pared, primero se coloca
-  en un punto del eje más alejado para no rozar las cajas.
-- **Aproximación**: sigue el eje con pure pursuit, apuntando a un punto del eje
-  que queda por delante. Esa distancia de mira se acorta al acercarse, así que
-  el robot termina centrado.
-- **Acople**: desde 40 cm de la pared, a 4 cm/s. Si en este tramo el robot
-  está torcido más de 4°, no intenta corregirlo ahí: pasa a retirada.
-- **Retirada**: retrocede hasta 55 cm y lo vuelve a intentar. También entra
-  aquí si llega a 25 cm de la pared sin acoplar.
+La velocidad lineal se escala con `cos²` del error de orientación, de modo que
+el robot gira y avanza simultáneamente.
 
-El robot gira y avanza a la vez: la velocidad lineal baja de forma suave con el
-error de ángulo (factor cos²) en lugar de pararse para girar.
+### Perfil de velocidad
 
-La velocidad sigue un perfil trapezoidal calculado en cada ciclo: sube con una
-aceleración limitada hasta 0.30 m/s y frena con `v = √(2·a·d)`, de forma que
-llega al tramo de acople (40 cm de la pared) ya a velocidad lenta. Si entra
-rápido se pasa del eje y llega torcido, y como `is_docked` se activa en cuanto
-el ángulo baja de 6°, eso se nota en la precisión.
+Perfil trapezoidal recalculado en cada ciclo a partir de la distancia medida:
 
-No hay una distancia objetivo en el código: el robot avanza hasta que
-`/dock_status` confirma el acople. La única distancia fija es el límite de
-seguridad de 25 cm, que sale del radio del robot (16.95 cm) más lo que
-sobresalen las cajas (8 cm).
+```
+v = min(V_MAX, √(V_ACOPLE² + 2·A_FRENO·(d − D_ACOPLE)))
+```
 
-Todos los parámetros están como constantes al principio de cada archivo.
+- Aceleración limitada a 0.4 m/s².
+- Velocidad de crucero de 0.30 m/s.
+- Frenado hasta 4 cm/s al inicio del tramo de acople (40 cm de la pared).
+- Velocidad y aceleración angulares limitadas a 1.5 rad/s y 3 rad/s².
 
-## Resultados
+### Distancias
 
-Ajusté los parámetros con un simulador cinemático propio (no incluido) que
-reproduce la sala, las cajas y el montaje del LiDAR, y corre el mismo código de
-detección, filtrado y control. En 100 poses aleatorias dentro del rango de
-evaluación acopló en todas, sin golpes, en unos 11 s de media (17 s como
-máximo). El error final quedó por debajo de 0.3 mm en lateral y de 0.3° en
-ángulo. En una de cada diez corridas el robot hizo una retirada antes de
-acoplar.
-
-## Limitaciones
-
-- Casi todo el ajuste se hizo en el simulador cinemático, que no modela la
-  rampa del dock ni la dinámica real del Create 3. Los resultados en Gazebo
-  pueden variar, sobre todo en el tramo final.
-- Entre los 25 cm del límite de seguridad y los ~26.8 cm a partir de los que
-  engancha hay muy poco margen. Si el robot entra en retirada una y otra vez,
-  lo primero sería bajar `V_ACOPLE`.
-- A más de 5 m de la pared del dock no detecta el marcador y depende de la
-  búsqueda para acercarse.
-- No hay tests automáticos de la lógica.
+El código no define una distancia objetivo de acople; la parada depende de
+`/dock_status`. La única distancia fija es el límite de seguridad
+`D_MIN = radio del robot + saliente de las cajas = 16.95 + 8 ≈ 25 cm`.
