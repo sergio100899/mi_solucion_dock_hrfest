@@ -12,6 +12,10 @@ sin sensores IR y sin ground truth.
 | Rafael Neciosup | rafaelnv2002@gmail.com |
 | Sergio Ortiz | sergio100899@gmail.com |
 
+## Commit evaluado
+
+`e31ffe75c06c93ba203db457ea37521c3b002d40`
+
 ## Requisitos
 
 - Ubuntu 22.04, ROS 2 Humble, Gazebo Classic 11
