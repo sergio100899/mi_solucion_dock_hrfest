@@ -8,7 +8,9 @@ IR y sin ground truth.
 
 | Nombre | Correo |
 |---|---|
-| _completar_ | _completar_ |
+| Oliver Beizaga | olibeizaga@hotmail.com |
+| Rafael Neciosup | rafaelnv2002@gmail.com |
+| Sergio Ortiz | sergio100899@gmail.com |
 
 ## Instalación
 
@@ -99,17 +101,17 @@ Es una máquina de estados:
 - **Aproximación**: sigue el eje con pure pursuit, apuntando a un punto del eje
   que queda por delante. Esa distancia de mira se acorta al acercarse, así que
   el robot termina centrado.
-- **Acople**: los últimos centímetros a 4 cm/s, y solo avanza si está casi
-  perpendicular a la pared.
-- **Retirada**: si llega a 25 cm de la pared sin acoplar, retrocede y lo
-  vuelve a intentar.
+- **Acople**: desde 40 cm de la pared, a 4 cm/s. Si en este tramo el robot
+  está torcido más de 4°, no intenta corregirlo ahí: pasa a retirada.
+- **Retirada**: retrocede hasta 55 cm y lo vuelve a intentar. También entra
+  aquí si llega a 25 cm de la pared sin acoplar.
 
 El robot gira y avanza a la vez: la velocidad lineal baja de forma suave con el
 error de ángulo (factor cos²) en lugar de pararse para girar.
 
 La velocidad sigue un perfil trapezoidal calculado en cada ciclo: sube con una
 aceleración limitada hasta 0.30 m/s y frena con `v = √(2·a·d)`, de forma que
-llega al tramo de acople (34 cm de la pared) ya a velocidad lenta. Si entra
+llega al tramo de acople (40 cm de la pared) ya a velocidad lenta. Si entra
 rápido se pasa del eje y llega torcido, y como `is_docked` se activa en cuanto
 el ángulo baja de 6°, eso se nota en la precisión.
 
@@ -125,8 +127,10 @@ Todos los parámetros están como constantes al principio de cada archivo.
 Ajusté los parámetros con un simulador cinemático propio (no incluido) que
 reproduce la sala, las cajas y el montaje del LiDAR, y corre el mismo código de
 detección, filtrado y control. En 100 poses aleatorias dentro del rango de
-evaluación acopló en todas, sin golpes, en unos 9 s de media (13 s como
-máximo). El error final quedó por debajo de 2 mm en lateral y de 3° en ángulo.
+evaluación acopló en todas, sin golpes, en unos 11 s de media (17 s como
+máximo). El error final quedó por debajo de 0.3 mm en lateral y de 0.3° en
+ángulo. En una de cada diez corridas el robot hizo una retirada antes de
+acoplar.
 
 ## Limitaciones
 
